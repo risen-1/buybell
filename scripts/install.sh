@@ -20,23 +20,42 @@ if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split("."
 fi
 
 echo "==> Getting BuyBell"
+# The checkout is owned by the buybell user; let root run git in it (install, update).
+git config --global --get-all safe.directory | grep -qx "$DIR" || git config --global --add safe.directory "$DIR"
 if [ -d "$DIR/.git" ]; then git -C "$DIR" pull -q; else git clone -q "$REPO" "$DIR"; fi
 id -u buybell >/dev/null 2>&1 || useradd --system --home "$DIR" --shell /usr/sbin/nologin buybell
 mkdir -p "$DIR/data"
 
-ask() { local v; read -r -p "$1" v < /dev/tty; echo "$v"; }
-# Hidden input for secrets, so the token never shows on screen or in screenshots.
-ask_secret() { local v; read -r -s -p "$1" v < /dev/tty; echo " (hidden, saved)" >&2; echo "$v"; }
-setenv() { if grep -q "^$1=" "$DIR/.env"; then sed -i "s|^$1=.*|$1=$2|" "$DIR/.env"; else echo "$1=$2" >> "$DIR/.env"; fi; }
+getenv() { grep "^$1=" "$DIR/.env" | head -1 | cut -d= -f2- || true; }
+setenv() { { grep -v "^$1=" "$DIR/.env" || true; printf '%s=%s\n' "$1" "$2"; } > "$DIR/.env.tmp" && mv "$DIR/.env.tmp" "$DIR/.env"; }
+
+# ask_valid NAME PROMPT REGEX required|optional [secret]
+# Re-asks until the answer looks right. Strips spaces/CR that terminals add on paste.
+# Enter keeps the current value. Secret input stays hidden (never in screenshots).
+ask_valid() {
+  local cur v; cur="$(getenv "$1")"
+  while :; do
+    if [ -n "${5:-}" ]; then read -r -s -p "$2" v < /dev/tty || true; echo >&2; else read -r -p "$2" v < /dev/tty || true; fi
+    v="$(printf '%s' "$v" | tr -d '[:space:]')"
+    [ -z "$v" ] && v="$cur"
+    if [ -z "$v" ] && [ "$4" = optional ]; then echo "   - skipped (you can add it later with: buybell config)" >&2; break; fi
+    if [ -n "$v" ] && [[ "$v" =~ $3 ]]; then
+      if [ -n "${5:-}" ]; then echo "   ✓ saved (bot id ${v%%:*})" >&2; else echo "   ✓ saved" >&2; fi
+      break
+    fi
+    echo "   ✗ That doesn't look right. Please copy it again and paste with a right-click." >&2
+  done
+  setenv "$1" "$v"
+}
 
 configure() {
   [ -f "$DIR/.env" ] || cp "$DIR/.env.example" "$DIR/.env"
   echo
-  echo "==> Settings (press Enter to keep a value empty)"
-  setenv BOT_TOKEN "$(ask_secret 'Bot token from @BotFather (paste it, it stays hidden): ')"
-  setenv OWNER_ID "$(ask 'Your Telegram numeric id (from @userinfobot): ')"
-  setenv WALLET_TRC20 "$(ask 'Your USDT TRC20 receiving address (starts with T): ')"
-  setenv WALLET_TON "$(ask 'Your TON receiving address (starts with UQ): ')"
+  echo "==> Settings (paste with a right-click, then press Enter)"
+  ask_valid BOT_TOKEN 'Bot token from @BotFather (stays hidden): ' '^[0-9]+:[A-Za-z0-9_-]{30,}$' required secret
+  ask_valid OWNER_ID 'Your Telegram numeric id (from @userinfobot): ' '^[0-9]{5,}$' required
+  ask_valid WALLET_TRC20 'USDT TRC20 receiving address (starts with T, Enter to skip): ' '^T[1-9A-HJ-NP-Za-km-z]{33}$' optional
+  ask_valid WALLET_TON 'TON receiving address (starts with UQ, Enter to skip): ' '^(UQ|EQ)[A-Za-z0-9_-]{46}$' optional
   chmod 600 "$DIR/.env"
 }
 if [ ! -f "$DIR/.env" ] || [ "${1:-}" = "--configure" ]; then configure; fi
