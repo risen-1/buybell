@@ -25,13 +25,15 @@ id -u buybell >/dev/null 2>&1 || useradd --system --home "$DIR" --shell /usr/sbi
 mkdir -p "$DIR/data"
 
 ask() { local v; read -r -p "$1" v < /dev/tty; echo "$v"; }
+# Hidden input for secrets, so the token never shows on screen or in screenshots.
+ask_secret() { local v; read -r -s -p "$1" v < /dev/tty; echo " (hidden, saved)" >&2; echo "$v"; }
 setenv() { if grep -q "^$1=" "$DIR/.env"; then sed -i "s|^$1=.*|$1=$2|" "$DIR/.env"; else echo "$1=$2" >> "$DIR/.env"; fi; }
 
 configure() {
   [ -f "$DIR/.env" ] || cp "$DIR/.env.example" "$DIR/.env"
   echo
   echo "==> Settings (press Enter to keep a value empty)"
-  setenv BOT_TOKEN "$(ask 'Bot token from @BotFather: ')"
+  setenv BOT_TOKEN "$(ask_secret 'Bot token from @BotFather (paste it, it stays hidden): ')"
   setenv OWNER_ID "$(ask 'Your Telegram numeric id (from @userinfobot): ')"
   setenv WALLET_TRC20 "$(ask 'Your USDT TRC20 receiving address (starts with T): ')"
   setenv WALLET_TON "$(ask 'Your TON receiving address (starts with UQ): ')"
