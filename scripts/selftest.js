@@ -161,6 +161,19 @@ await msg({ id: FRIEND, type: 'private' }, FRIEND, '/admin');
 assert.ok(!sent.slice(before).some(s => /BuyBell report/.test(s.text || '')), 'non-admins get no report');
 step('extra admin: review cards, /admin and /grantpro work; non-admins blocked');
 
+// 9. outreach leads: admins only, DM text names the token and the exact setup command
+const { leadMessage } = await import('../src/leads.js');
+let leadCalls = 0;
+ctx.leads = { send: async to => { leadCalls++; assert.deepEqual(to, [ADMIN2]); } };
+await msg({ id: FRIEND, type: 'private' }, FRIEND, '/leads');
+await msg({ id: ADMIN2, type: 'private' }, ADMIN2, '/leads');
+assert.equal(leadCalls, 1, 'only admins can request leads');
+const dm = leadMessage({ symbol: 'FROG', net: 'solana', token: 'FrogMint111' }, 'BuyBellBot', 1);
+assert.match(dm, /\$FROG/);
+assert.match(dm, /@BuyBellBot/);
+assert.match(dm, /\/setup FrogMint111/);
+step('leads: /leads is admin-only, DM template is personalised');
+
 db.raw.close();
 fs.rmSync(dbFile, { force: true });
 for (const ext of ['-wal', '-shm']) fs.rmSync(dbFile + ext, { force: true });
