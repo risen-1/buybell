@@ -80,9 +80,9 @@ let lastWeekly = '', lastDaily = '';
 setInterval(async () => {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
-  if (now.getUTCDay() === 1 && now.getUTCHours() === 9 && lastWeekly !== today && cfg.ownerId) {
+  if (now.getUTCDay() === 1 && now.getUTCHours() === 9 && lastWeekly !== today) {
     lastWeekly = today;
-    tg.send(cfg.ownerId, bot.adminSummary()).catch(() => {});
+    for (const id of cfg.adminIds) tg.send(id, bot.adminSummary()).catch(() => {});
   }
   if (now.getUTCHours() === 18 && lastDaily !== today) {
     lastDaily = today;

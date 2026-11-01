@@ -18,6 +18,8 @@ const num = (k, d) => (process.env[k] ? Number(process.env[k]) : d);
 export const cfg = {
   token: process.env.BOT_TOKEN || '',
   ownerId: num('OWNER_ID', 0),
+  // Owner plus extra admins (ADMIN_IDS=id1,id2): all can run admin commands and get notifications.
+  adminIds: [...new Set([process.env.OWNER_ID, ...(process.env.ADMIN_IDS || '').split(',')].map(Number).filter(n => n > 0))],
   wallets: { trc20: process.env.WALLET_TRC20 || '', ton: process.env.WALLET_TON || '' },
   proMonth: num('PRO_PRICE_MONTH', 29),
   proYear: num('PRO_PRICE_YEAR', 290),

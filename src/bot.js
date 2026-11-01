@@ -18,7 +18,8 @@ export function createBot(ctx) {
   const me = () => ctx.me;
   const kb = rows => ({ reply_markup: { inline_keyboard: rows } });
   const stateKey = (chat, user) => `${chat}:${user}`;
-  const notifyOwner = text => cfg.ownerId && tg.send(cfg.ownerId, text).catch(() => {});
+  const isAdmin = id => cfg.adminIds.includes(id);
+  const notifyOwner = text => { for (const id of cfg.adminIds) tg.send(id, text).catch(() => {}); };
 
   async function canManage(msg) {
     if (msg.sender_chat && msg.sender_chat.id === msg.chat.id) return true; // anonymous admin
@@ -213,15 +214,17 @@ export function createBot(ctx) {
 
   async function adminPanel(chatId) {
     await tg.send(chatId, adminSummary());
-    for (const ad of db.all("SELECT * FROM ads WHERE status = 'review' ORDER BY id")) await reviewCard(ad);
+    for (const ad of db.all("SELECT * FROM ads WHERE status = 'review' ORDER BY id")) await reviewCard(ad, [chatId]);
     const owed = db.all(`SELECT i.ref_by AS id, u.username, u.payout, SUM(i.commission) AS s FROM invoices i LEFT JOIN users u ON u.id = i.ref_by
       WHERE i.status = 'paid' AND i.ref_by IS NOT NULL GROUP BY i.ref_by`);
     if (owed.length) await tg.send(chatId, '🤝 <b>Referral earnings (all-time)</b>\n' + owed.map(o => `• ${o.username ? '@' + esc(o.username) : o.id}: ${usd(o.s)} → ${o.payout ? `<code>${esc(o.payout)}</code>` : 'no wallet yet'}`).join('\n'));
   }
 
-  async function reviewCard(ad) {
-    await tg.send(cfg.ownerId, `📢 <b>Ad #${ad.id} waiting for review</b> (${ad.days}d, ${usd(ad.usd)} paid)\n\n${esc(ad.text)}\n${esc(ad.url)}`,
-      kb([[{ text: '✅ Approve', callback_data: `adm:ok:${ad.id}` }, { text: '❌ Reject', callback_data: `adm:no:${ad.id}` }]]));
+  async function reviewCard(ad, to = cfg.adminIds) {
+    for (const id of to) {
+      await tg.send(id, `📢 <b>Ad #${ad.id} waiting for review</b> (${ad.days}d, ${usd(ad.usd)} paid)\n\n${esc(ad.text)}\n${esc(ad.url)}`,
+        kb([[{ text: '✅ Approve', callback_data: `adm:ok:${ad.id}` }, { text: '❌ Reject', callback_data: `adm:no:${ad.id}` }]])).catch(e => log('review card', id, e.message));
+    }
   }
 
   async function onPrivate(msg) {
@@ -250,8 +253,8 @@ export function createBot(ctx) {
       return tg.send(chatId, '✅ Payout wallet saved.');
     }
     if (cmd === '/help') return tg.send(chatId, '🔔 Add me to a group, then an admin runs /setup &lt;token address&gt; there.\n\n/advertise — book an ad\n/referral — earn 20% for invites\n/myid — your Telegram id');
-    if (cmd === '/admin' && user.id === cfg.ownerId) return adminPanel(chatId);
-    if (cmd === '/grantpro' && user.id === cfg.ownerId) {
+    if (cmd === '/admin' && isAdmin(user.id)) return adminPanel(chatId);
+    if (cmd === '/grantpro' && isAdmin(user.id)) {
       const [gid, days] = rest.map(Number);
       const g = gid && db.group(gid);
       if (!g || !(days > 0)) return tg.send(chatId, 'Usage: /grantpro GROUP_ID DAYS (the id is in the “New group” notification).');
@@ -260,7 +263,7 @@ export function createBot(ctx) {
       tg.send(gid, `🎁 <b>You’ve been given BuyBell Pro until ${date(until)}!</b> Ads are removed — open /settings to add your GIF, sell and whale alerts.`).catch(() => {});
       return tg.send(chatId, `✅ ${esc(g.title)} is Pro until ${date(until)}.`);
     }
-    if (cmd === '/refpaid' && user.id === cfg.ownerId) {
+    if (cmd === '/refpaid' && isAdmin(user.id)) {
       const amount = parseFloat(arg);
       if (!(amount > 0)) return tg.send(chatId, 'Usage: /refpaid AMOUNT — records a referral payout you sent.');
       db.count('ref_paid_cents', Math.round(amount * 100));
@@ -331,7 +334,7 @@ export function createBot(ctx) {
       const inv = db.get('SELECT status FROM invoices WHERE id = ?', +a);
       return tg.answer(q.id, inv?.status === 'paid' ? '✅ Payment received!' : inv?.status === 'expired' ? 'This invoice expired.' : '⏳ Not received yet — it usually takes under a minute after sending.', true);
     }
-    if (kind === 'adm' && q.from.id === cfg.ownerId) {
+    if (kind === 'adm' && isAdmin(q.from.id)) {
       const ad = db.get('SELECT * FROM ads WHERE id = ?', +b);
       if (!ad || ad.status !== 'review') return tg.answer(q.id, 'Already handled.');
       if (a === 'ok') {
@@ -366,7 +369,7 @@ export function createBot(ctx) {
       tg.send(inv.user_id, `✅ Payment received for ad #${inv.ref}. It goes live as soon as it’s reviewed (usually within a few hours).`).catch(() => {});
       notifyOwner(`💰 <b>+${usd(inv.usd)}</b> ad booking #${inv.ref}`);
       const ad = db.get('SELECT * FROM ads WHERE id = ?', +inv.ref);
-      if (ad && cfg.ownerId) await reviewCard(ad);
+      if (ad) await reviewCard(ad);
     }
     if (inv.ref_by && inv.commission > 0) tg.send(inv.ref_by, `🤝 You earned <b>${usd(inv.commission)}</b> from a referral payment!`).catch(() => {});
   }
