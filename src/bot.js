@@ -254,6 +254,10 @@ export function createBot(ctx) {
     }
     if (cmd === '/help') return tg.send(chatId, '🔔 Add me to a group, then an admin runs /setup &lt;token address&gt; there.\n\n/advertise — book an ad\n/referral — earn 20% for invites\n/myid — your Telegram id');
     if (cmd === '/admin' && isAdmin(user.id)) return adminPanel(chatId);
+    if (cmd === '/leads' && isAdmin(user.id)) {
+      await tg.send(chatId, '🔎 Looking for fresh projects… (about a minute)');
+      return ctx.leads.send([chatId]);
+    }
     if (cmd === '/grantpro' && isAdmin(user.id)) {
       const [gid, days] = rest.map(Number);
       const g = gid && db.group(gid);

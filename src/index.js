@@ -7,6 +7,7 @@ import { createTracker } from './tracker.js';
 import { createPayments } from './payments.js';
 import { createAds } from './ads.js';
 import { createBot } from './bot.js';
+import { createLeads } from './leads.js';
 import { buyAlert, priceCard, isPro } from './format.js';
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -70,19 +71,25 @@ async function onTrade(pool, trade) {
 
 const tracker = createTracker({ db, gecko, onTrade, log });
 ctx.tracker = tracker;
+ctx.leads = createLeads({ db, tg, cfg, log, me: () => ctx.me });
 const bot = createBot(ctx);
 const payments = createPayments({ db, cfg, onPaid: inv => bot.onPaid(inv), log });
 ctx.payments = payments;
 
 // ---------- schedules (UTC) ----------
 
-let lastWeekly = '', lastDaily = '';
+let lastWeekly = '', lastDaily = '', lastLeads = '';
 setInterval(async () => {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
   if (now.getUTCDay() === 1 && now.getUTCHours() === 9 && lastWeekly !== today) {
     lastWeekly = today;
     for (const id of cfg.adminIds) tg.send(id, bot.adminSummary()).catch(() => {});
+  }
+  // Fresh outreach leads every morning (06:00 UTC ≈ 09:30 Tehran).
+  if (now.getUTCHours() === 6 && lastLeads !== today) {
+    lastLeads = today;
+    ctx.leads.send().catch(e => log('daily leads', e.message));
   }
   if (now.getUTCHours() === 18 && lastDaily !== today) {
     lastDaily = today;
