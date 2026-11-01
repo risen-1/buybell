@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 
 process.env.BOT_TOKEN = 'TEST:TOKEN';
 process.env.OWNER_ID = '111';
+process.env.ADMIN_IDS = '444';
 process.env.WALLET_TRC20 = 'TXYZtestWalletAddressForSelfTest1';
 process.env.WALLET_TON = '';
 const dbFile = path.join(os.tmpdir(), `buybell-test-${Date.now()}.db`);
@@ -147,6 +148,18 @@ await msg({ id: OWNER, type: 'private' }, OWNER, '/admin');
 const report = [...sent].reverse().find(s => s.chat_id === OWNER && /BuyBell report/.test(s.text || '')).text;
 assert.match(report, /Revenue/);
 step('owner report:\n' + report.replace(/<[^>]+>/g, '').split('\n').map(l => '    ' + l).join('\n'));
+
+// 8. extra admin (ADMIN_IDS): same notifications and commands as the owner; others are ignored
+const ADMIN2 = 444;
+assert.ok(sent.some(s => s.chat_id === ADMIN2 && /waiting for review/.test(s.text)), 'extra admin gets ad review cards');
+await msg({ id: ADMIN2, type: 'private' }, ADMIN2, '/admin');
+assert.ok(sent.some(s => s.chat_id === ADMIN2 && /BuyBell report/.test(s.text || '')));
+await msg({ id: ADMIN2, type: 'private' }, ADMIN2, `/grantpro ${GID} 10`);
+assert.match(last('sendMessage', ADMIN2).text, /is Pro until/);
+const before = sent.length;
+await msg({ id: FRIEND, type: 'private' }, FRIEND, '/admin');
+assert.ok(!sent.slice(before).some(s => /BuyBell report/.test(s.text || '')), 'non-admins get no report');
+step('extra admin: review cards, /admin and /grantpro work; non-admins blocked');
 
 db.raw.close();
 fs.rmSync(dbFile, { force: true });
